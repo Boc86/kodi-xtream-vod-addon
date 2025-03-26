@@ -115,17 +115,27 @@ def extract_info(extinf_line):
             tv_show_name = year_match.group(1).strip()
         else:
             tv_show_name = full_name.strip()
+    
+    # Fallback: Extract name from the full line if tvg-name is not found
+    if not tv_show_name:
+        # Try to extract any text between quotes
+        alt_name_match = re.search(r'"([^"]+)"', extinf_line)
+        if alt_name_match:
+            tv_show_name = alt_name_match.group(1).strip()
+        else:
+            # Last resort: Use "Unknown Title" with timestamp
+            tv_show_name = f"Unknown Title {int(time.time())}"
 
-    # Extract year
+    # Extract year with fallback
     year_match = re.search(r'\((\d{4})\)', extinf_line)
-    tv_show_year = year_match.group(1) if year_match else None
+    tv_show_year = year_match.group(1) if year_match else "0000"
 
-    # Extract season and episode numbers
+    # Extract season and episode numbers with fallbacks
     season_match = re.search(r'S(\d{2})', extinf_line)
-    tv_show_season = season_match.group(1) if season_match else None
+    tv_show_season = season_match.group(1) if season_match else "01"
 
     episode_match = re.search(r'E(\d{2})', extinf_line)
-    tv_show_episode = episode_match.group(1) if episode_match else None
+    tv_show_episode = episode_match.group(1) if episode_match else "01"
    
     return {
         'name': tv_show_name,
@@ -273,9 +283,10 @@ def process_m3u():
         if line.startswith('#EXTINF'):
             info = extract_info(line)
             url = lines[i + 1].strip()
+            server_domain = get_server_domain()
            
-            if info['name'] and info['year']:
-                server_domain = get_server_domain()
+            # Always process if we have a URL, regardless of info completeness
+            if url:
                 # Movie processing
                 if url.startswith(f'http://{server_domain}:80/movie/') or url.startswith(f'https://{server_domain}:80/movie/'):
                     safe_name = sanitize_filename(info['name'])
@@ -286,35 +297,29 @@ def process_m3u():
                
                 # TV Show processing
                 elif url.startswith(f'http://{server_domain}:80/series/') or url.startswith(f'https://{server_domain}:80/series/'):
-                    if info['season'] and info['episode']:
-                        # Get the variables from info
-                        tv_show_name = sanitize_filename(info['name'])
-                        tv_show_year = info['year']
-                        tv_show_season = info['season']
-                        tv_show_episode = info['episode']
-                       
-                        # Create parent folder path
-                        parent_folder = os.path.join(TV_SHOWS_DIR, f"{tv_show_name} {tv_show_year}")
-                       
-                        # Create season folder path
-                        season_folder = os.path.join(parent_folder, f"Season {tv_show_season}")
-                       
-                        # Create STRM file path
-                        strm_filename = f"{tv_show_name} S{tv_show_season}E{tv_show_episode}.strm"
-                        strm_path = os.path.join(season_folder, strm_filename)
-                        valid_files.add(strm_path)
-                       
-                        # Ensure season folder exists
-                        xbmcvfs.mkdirs(parent_folder)
-                        xbmcvfs.mkdirs(season_folder)
-                       
-                        # Create STRM file if it doesn't exist
-                        if not xbmcvfs.exists(strm_path):
-                            file_handle = xbmcvfs.File(strm_path, 'w')
-                            file_handle.write(url)
-                            file_handle.close()
-                            stats.shows_added.add(f"{tv_show_name} {tv_show_year}")
-                            stats.episodes_added += 1
+                    # Get the variables from info
+                    tv_show_name = sanitize_filename(info['name'])
+                    tv_show_year = info['year']
+                    tv_show_season = info['season']
+                    tv_show_episode = info['episode']
+                    
+                    # Create paths and STRM file
+                    parent_folder = os.path.join(TV_SHOWS_DIR, f"{tv_show_name} {tv_show_year}")
+                    season_folder = os.path.join(parent_folder, f"Season {tv_show_season}")
+                    strm_filename = f"{tv_show_name} S{tv_show_season}E{tv_show_episode}.strm"
+                    strm_path = os.path.join(season_folder, strm_filename)
+                    valid_files.add(strm_path)
+                    
+                    # Ensure folders exist and create STRM file
+                    xbmcvfs.mkdirs(parent_folder)
+                    xbmcvfs.mkdirs(season_folder)
+                    
+                    if not xbmcvfs.exists(strm_path):
+                        file_handle = xbmcvfs.File(strm_path, 'w')
+                        file_handle.write(url)
+                        file_handle.close()
+                        stats.shows_added.add(f"{tv_show_name} {tv_show_year}")
+                        stats.episodes_added += 1
             i += 2
         else:
             i += 1
