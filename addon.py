@@ -14,6 +14,7 @@ from unidecode import unidecode
 from requests_cache import CachedSession
 from rapidfuzz import fuzz, process
 import shutil
+import time
 
 # Kodi settings
 ADDON = xbmcaddon.Addon()
@@ -40,8 +41,8 @@ session = CachedSession(cache_name='xtream_cache', backend='sqlite', expire_afte
 
 TCP_LIMIT = 500
 SEM_LIMIT = 200
-CHUNK_SIZE = 100
-FILE_SEM_LIMIT = 100
+CHUNK_SIZE = 500
+FILE_SEM_LIMIT = 200
 
 def log_to_kodi(msg):
     xbmc.log(f"[m3utostrm] {msg}", xbmc.LOGINFO)
@@ -247,6 +248,17 @@ def create_filename(title, content_type, release_year=None):
         filename = 'Unknown'
     return filename
 
+def extract_series_name_from_url(url):
+    """Extract the series name from a /series/ URL segment."""
+    match = re.search(r'/series/([^/]+)/', url)
+    if match:
+        # Replace dots/underscores with spaces, remove extra symbols
+        name = match.group(1)
+        name = re.sub(r'[._]+', ' ', name)
+        name = re.sub(r'[^\w\s-]', '', name)
+        return name.strip()
+    return None
+
 def parse_m3u(lines):
     entries = []
     excluded_hashtag_count = 0
@@ -298,6 +310,14 @@ def parse_m3u(lines):
                     content_type = "tv"
                 elif 'movie' in url.lower():
                     content_type = "movie"
+                # --- Improved TV show detection fallback ---
+                if content_type == "tv":
+                    # If title is empty, generic, or looks like a filename, fallback to URL extraction
+                    fallback_needed = not title or title.lower() in ("unknown", "series", "tv show") or re.match(r'^s\d+e\d+', title, re.I)
+                    if fallback_needed:
+                        extracted = extract_series_name_from_url(url)
+                        if extracted:
+                            title = extracted
                 clean_filename = create_filename(title, content_type)
                 entries.append({
                     'title': title,
@@ -1119,6 +1139,7 @@ async def update_library():
     xbmc.executebuiltin('UpdateLibrary(video)')
 
 async def main():
+    start_time = time.time()
     xbmcgui.Dialog().notification('m3utostrm', 'Script started', xbmcgui.NOTIFICATION_INFO)
     log_to_kodi("=== m3utostrm script started ===")
     series_data, vod_data = load_json_data()
@@ -1126,8 +1147,11 @@ async def main():
         log_to_kodi("Failed to load or fetch Series and VOD data. Aborting.")
         xbmcgui.Dialog().notification('Error', 'Failed to load Series and VOD data', xbmcgui.NOTIFICATION_ERROR)
         return
+    xbmcgui.Dialog().notification('m3utostrm', 'Loading and parsing M3U playlist...', xbmcgui.NOTIFICATION_INFO)
     entries = await fetch_m3u()
+    xbmcgui.Dialog().notification('m3utostrm', 'Filtering entries by JSON data...', xbmcgui.NOTIFICATION_INFO)
     filtered_entries = filter_entries_by_json(entries, series_data, vod_data)
+    xbmcgui.Dialog().notification('m3utostrm', 'Filtering out existing files...', xbmcgui.NOTIFICATION_INFO)
     filtered_entries = filter_entries_that_exist(filtered_entries, MOVIES_DIR, TVSHOWS_DIR)
     log_to_kodi(f"After filtering with JSON data & file existence, {len(filtered_entries)} entries will be processed.")
     if not filtered_entries:
@@ -1137,15 +1161,39 @@ async def main():
     movies = [e for e in filtered_entries if e['type'] == 'movie']
     tvs = [e for e in filtered_entries if e['type'] == 'tv']
     log_to_kodi(f"Found {len(movies)} movies and {len(tvs)} TV shows to process")
+    xbmcgui.Dialog().notification('m3utostrm', f'Processing {len(movies)} movies and {len(tvs)} TV shows...', xbmcgui.NOTIFICATION_INFO)
     connector = aiohttp.TCPConnector(limit=TCP_LIMIT)
     sem = Semaphore(SEM_LIMIT)
     file_sem = Semaphore(FILE_SEM_LIMIT)
+    added_files = 0
+    removed_files = 0
+    # Track added files before and after
+    before_movie_files = set(get_existing_movie_filenames(MOVIES_DIR))
+    before_tv_files = set(get_existing_tv_filenames(TVSHOWS_DIR))
     async with aiohttp.ClientSession(connector=connector) as aio_sess:
         for batch in [movies[i:i+CHUNK_SIZE] for i in range(0, len(movies), CHUNK_SIZE)]:
             await process_batch(batch, MOVIES_DIR, aio_sess, sem, file_sem)
         for batch in [tvs[i:i+CHUNK_SIZE] for i in range(0, len(tvs), CHUNK_SIZE)]:
             await process_batch(batch, TVSHOWS_DIR, aio_sess, sem, file_sem)
     await update_library()
-    log_to_kodi("Library update triggered.")
+    # Count added files
+    after_movie_files = set(get_existing_movie_filenames(MOVIES_DIR))
+    after_tv_files = set(get_existing_tv_filenames(TVSHOWS_DIR))
+    added_movies = len(after_movie_files - before_movie_files)
+    added_tvs = len(after_tv_files - before_tv_files)
+    added_files = added_movies + added_tvs
+    # For deletions, you may want to track files before and after deletion logic if implemented
+    # For now, assume removed_files = 0 unless you add deletion logic
+    end_time = time.time()
+    runtime = end_time - start_time
+    xbmcgui.Dialog().notification(
+        'm3utostrm',
+        f'Added {added_movies} movies, {added_tvs} TV shows. See log for details.',
+        xbmcgui.NOTIFICATION_INFO
+    )
+    log_to_kodi(f"Summary: Added {added_movies} new movies, {added_tvs} new TV shows.")
+    log_to_kodi(f"Total new files added: {added_files}")
+    log_to_kodi(f"Total files removed: {removed_files}")
+    log_to_kodi(f"Total runtime: {runtime:.2f} seconds")
 
 asyncio.run(main())
