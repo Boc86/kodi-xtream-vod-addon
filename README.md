@@ -1,3 +1,15 @@
+**This repo has now been archived, henryjfry has updated the code on his repo but there is likely to be further development**
+
+***Link to henryjfry repo for the latest version [kodi-xtream-vod-addon](https://github.com/henryjfry/kodi-xtream-vod-addon)***
+
+***henryjfry also hosts a more complete vod addon that i suggest checking out at [Xtreme Vod](https://github.com/henryjfry/repository.thenewdiamond/tree/main/script.xtreme_vod)***
+
+***You can also check out Fynix Library Builder which is an evolution of the addon [Fynix Library Builder](https://github.com/Boc86/Fynix-Library-Builder)***
+
+
+
+
+
 **Code generated using Github Autopilot**
 
 Thanks to henryjfry for taking the time to fix my shoddy attempt at vibe coding this addon. Hopefully with his effort and fixes it can be of use for some people
@@ -124,6 +136,7 @@ This Kodi addon allows you to seamlessly add IPTV Video-on-Demand (VOD) content 
 Enjoy your IPTV VOD content fully integrated into your Kodi library!
 
 Credit to [henryjfry](https://github.com/henryjfry) for pointing me in the direction of his repo and existing VOD work that inspired the V2 re-write
+
 
 
 
